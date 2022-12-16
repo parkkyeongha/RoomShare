@@ -20,26 +20,16 @@ interface IRoomShare {
         address renter;
     }
 
-    event NewRoom (
-        uint256 indexed roomId
-    );
-    event NewRent (
-        uint indexed roomId,
-        uint256 indexed rentId
-    );
-    event Transfer(
-      address sender, 
-      address recipient, 
-      uint amount
-    );
+    event NewRoom (uint256 indexed roomId);
+    event NewRent (uint indexed roomId, uint256 indexed rentId);
+    event Transfer(address sender, address recipient, uint amount);
 
-
+    function getRoomId() external view returns(uint256);
     function getMyRents() external view returns(Rent[] memory); // msg.sender
-
     function getRoomRentHistory(uint _roomId) external view returns(Rent[] memory);
-
+    function getroomId2room(uint _roomId) external view returns(Room memory);
     
-    function shareRoom( string calldata name, string calldata location, uint price ) external;
+    function shareRoom( string calldata name, string calldata location, uint price ) external ;
 
     function rentRoom(uint _roomId, uint checkInDate, uint checkOutDate) payable external;
         function _createRent(uint256 _roomId, uint256 checkInDate, uint256 checkoutDate) external ; // internal
@@ -52,10 +42,10 @@ interface IRoomShare {
     // optional 1
     // caution: 방의 소유자를 먼저 체크해야한다.
     // isActive 필드만 변경한다.
-    function markRoomAsInactive(uint256 _roomId) external;
+    //function markRoomAsInactive(uint256 _roomId) external;
 
     // optional 2
     // caution: 변수의 저장공간에 유의한다.
     // 첫날부터 시작해 함수를 실행한 날짜까지 isRented 필드의 초기화를 진행한다.
-    function initializeRoomShare(uint _roomId, uint day) external;
+    //function initializeRoomShare(uint _roomId, uint day) external;
 }

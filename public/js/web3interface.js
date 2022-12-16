@@ -1,21 +1,23 @@
 let web3;
 let user;
+let contract;
 
 const mEthPrice = 1600;
 const currentYear = 2022;
 
-const contract_address = ""; // 따옴표 안에 주소값 복사 붙여넣기
+const contract_address = "0xd9145CCE52D386f254917e481eB44e9943F39138"; // 따옴표 안에 주소값 복사 붙여넣기
 
 const logIn = async () => {
   const ID = prompt("choose your ID");
 
   // 개발 시 (ganache)
-  web3 = new Web3(new Web3.providers.HttpProvider('http://localhost:8545'));
-
+  //web3 = new Web3(new Web3.providers.HttpProvider('http://localhost:8545'));
+  
   // 과제 제출 시 (metamask)
-  // web3 = await metamaskRequest();
+  web3 = await metamaskRequest();
 
   user = await getAccountInfos(Number(ID));
+  contract = new web3.eth.Contract(await json2abi("./abi.json"), contract_address);
 
   await _updateUserAddress(user);
   await _updateUserBalance(user);
@@ -83,8 +85,8 @@ const _updateRents = () => {
 
 const getRoomShareContract = async () => {
   const abi = await json2abi("./abi.json");
-  const RoomShare = new web3.eth.Contract(abi,contract_address)
-  return RoomShare
+  const RoomShare = new web3.eth.Contract(abi,contract_address);
+  return RoomShare;
 }
 
 let checkInDatedom;
@@ -158,11 +160,33 @@ const _shareRoom = async (name, location, price) => {
   // 에러 발생시 call 또는 send 함수의 파라미터에 from, gas 필드 값을 제대로 넣었는지 확인한다. (e.g. {from: ..., gas: 3000000, ...})
   // 트랜잭션이 올바르게 발생하면 알림 팝업을 띄운다. (e.g. alert("등록"))
   // 화면을 업데이트 한다.
+  const result = await contract.methods.shareRoom(name, location, price).send({from:user, gas:3000000}).catch(e=> {
+    console.log(e);
+  });
+  if(result)
+    alert("등록");
 }
 
 
 const _getMyRents = async () => {
   // 내가 대여한 방 리스트를 불러온다.
+  let myRents = [];
+  const contractMyRent = await contract.methods.getMyRents().call({from:user}).catch(e=> {
+    console.log('getMyRentsError: ', e);
+  });
+
+  for (let i = 0; i < contractMyRent.length; i++){
+    let myRentObject = {};
+
+    myRentObject.id = contractMyRent[i].id;
+    myRentObject.rId = contractMyRent[i].rId;
+    myRentObject.checkInDate = contractMyRent[i].checkInDate;
+    myRentObject.checkOutDate = contractMyRent[i].checkOutDate;
+    myRentObject.renter = contractMyRent[i].renter;
+
+    myRents.push(myRentObject);
+  }
+  //console.log(myRents);
   return myRents;
 }
 
@@ -183,6 +207,25 @@ const displayMyRents = async () => {
 
 const _getAllRooms = async () => {
   // Room ID 를 기준으로 컨트랙트에 등록된 모든 방 객체의 데이터를 불러온다.
+  const roomId = await contract.methods.getRoomId().call();
+  let rooms = [];
+
+  for(let i = 0; i < roomId; i++){
+    let roomObject = {};
+    const roomContract = await contract.methods.getroomId2room(i).call();
+
+    roomObject.id = roomContract.id;
+    roomObject.name = roomContract.name;
+    roomObject.location = roomContract.location;
+    roomObject.isActive = roomContract.isActive;
+    roomObject.price = roomContract.price;
+    roomObject.owner = roomContract.owner;
+    roomObject.isRented = roomContract.isRented;
+
+    rooms.push(roomObject);
+  }
+  
+  console.log(rooms);
   return rooms;
 }
 
@@ -265,6 +308,23 @@ const _rentRoom = async (roomId, checkInDate, checkOutDate, price) => {
   // 단위는 finney = milli Eth (10^15)
   // Room ID에 해당하는 방이 체크인하려는 날짜에 대여되어서 대여되지 않는다면 _recommendDate 함수를 호출한다.
   // 화면을 업데이트 한다.
+
+  const totalPrice = price * Math.pow(10, 15);
+  const result = await contract.methods.rentRoom(roomId, checkInDate, checkOutDate).send({from:user, gas:3000000, value: totalPrice}).catch(e=> {
+    console.log(e);
+    if(e == "Error: Returned error: VM Exception while processing transaction: revert NotMatchPrice"){
+      alert("Please check Price.");
+    }
+    if(e == "Error: Returned error: VM Exception while processing transaction: revert NotCheckDate"){
+      alert("NotCheckDate");
+      _recommendDate(roomId, checkInDate, checkOutDate);
+    }
+  });
+  if(result) alert("Success Rent!");
+
+  await _updateUserBalance(user);
+  _updateRents();
+  _updateRooms();
 }
 
 const _recommendDate = async (roomId, checkInDate, checkOutDate) => {
@@ -273,6 +333,10 @@ const _recommendDate = async (roomId, checkInDate, checkOutDate) => {
   // checkInDate <= 대여된 체크인 날짜 , 대여된 체크아웃 날짜 < checkOutDate
   // 체크아웃 날짜에는 퇴실하여야하며, 해당일까지 숙박을 이용하려면 체크아웃날짜는 그 다음날로 변경하여야한다.
   // 주어진 헬퍼 함수 dateFromDay 를 이용한다.
+
+  const recommendDate = recommendDate(roomId, checkInDate, checkOutDate).call();
+  alert("대여된 체크인 날짜: " + dateFromDay(currentYear, recommendDate[0]).toDateString() + 
+        "\n대여된 체크아웃 날짜: " + dateFromDay(currentYear, recommendDate[1]).toDateString());
 }
 
 
@@ -280,8 +344,24 @@ const getRoomRentHistory = async () => {
   // 선택된 방에 대해 그동안 대여했던 사람들의 목록(히스토리)을 불러온다.
   // 빈 배열을 만들고 주어진 헬퍼 함수 returnOptionsJSON 를 사용하여 선택된 방의 ID 값을 이용해 컨트랙트를 호출한다.
   // 헬퍼 함수 dateFromDay 를 이용한다.
-  
-  return history
+  const jsonobj = returnOptionsJSON();
+  const roomId = jsonobj.id;
+  let history = [];
+  const contractHistory = await contract.methods.getRoomRentHistory(roomId).call();
+
+  for (let i = 0; i < contractHistory.length; i++){
+    let historyObject = {};
+
+    historyObject.id = contractHistory[i].id;
+    historyObject.rId = contractHistory[i].rId;
+    historyObject.checkInDate = dateFromDay(currentYear, contractHistory[i].checkInDate).toDateString();
+    historyObject.checkOutDate = dateFromDay(currentYear, contractHistory[i].checkOutDate).toDateString();
+    historyObject.renter = contractHistory[i].renter;
+
+    history.push(historyObject);
+  }
+  //console.log(history);
+  return history;
 }
 
 
@@ -299,12 +379,12 @@ const displayRoomHistory = async () => {
 	document.getElementById('roomHistory').innerHTML = html;
 }
 
-const markRoomAsInactive = async (_roomId) => {
-  // optional 1: 예약 비활성화
-  // 소유한 방 중에서 선택한 방의 대여 가능 여부를 비활성화 한다.
-}
+// const markRoomAsInactive = async (_roomId) => {
+//   // optional 1: 예약 비활성화
+//   // 소유한 방 중에서 선택한 방의 대여 가능 여부를 비활성화 한다.
+// }
 
-const intializeRoomShare = async (_roomId) => {
-  // optional 2: 대여 초기화
-  // 소유한 방 중에서 선택한 방의 대여된 일정을 모두 초기화 한다.
-}
+// const intializeRoomShare = async (_roomId) => {
+//   // optional 2: 대여 초기화
+//   // 소유한 방 중에서 선택한 방의 대여된 일정을 모두 초기화 한다.
+// }
